@@ -41,7 +41,7 @@ this.subprocess = function(args, stdin)
         args = args,
         stdin_data = (stdin or ""),
     }
-    return mp.command_native(command_table)
+    return mp.command_native(command_table);
 end
 
 this.subprocess_async = function(args, on_complete)
@@ -54,6 +54,7 @@ this.subprocess_async = function(args, on_complete)
     }
     return mp.command_native_async(command_table, on_complete)
 end
+
 
 this.remove_extension = function(filename)
     return filename:gsub('%.%w+$', '')
@@ -76,20 +77,20 @@ this.two_digit = function(num)
 end
 
 this.twelve_hour = function(num)
-  local sign = "pm"
-  local hour = num
+    local sign = "pm"
+    local hour = num
 
-  if num > 12 then
-      hour = hour - 12
-  else
-      sign = "am"
-  end
+    if num > 12 then
+        hour = hour - 12
+    else
+        sign = "am"
+    end
 
-  return { sign = sign, hour = hour }
+    return { sign = sign, hour = hour }
 end
 
-this.expand_path = function (str)
-    return mp.command_native({"expand-path", str})
+this.expand_path = function(str)
+    return mp.command_native({ "expand-path", str })
 end
 
 this.human_readable_time = function(seconds)
@@ -136,6 +137,41 @@ end
 this.query_user_home_dir = function()
     --- "USERPROFILE" is used on ReactOS and other Windows-like systems.
     return os.getenv("HOME") or os.getenv("USERPROFILE")
+end
+
+this.await = function(asyncFunc, ...)
+    local args = { ... }
+    return coroutine.yield(function(resume)
+        -- append the callback to the args
+        table.insert(args, function(...)
+            resume(...)
+        end)
+        asyncFunc(table.unpack(args))
+    end)
+end
+
+this.run_async_flow = function(func)
+    local co = coroutine.create(func)
+    local function step(...)
+        local ok, res = coroutine.resume(co, ...)
+        if not ok then
+            print("Coroutine error:", res)
+            return
+        end
+        if coroutine.status(co) == "dead" then return end
+        if type(res) == "function" then
+            res(step)
+        end
+    end
+    step()
+    return co
+end
+
+this.insert_table = function(dest, ...)
+    local sources = { ... }
+    for _, tab in pairs(sources) do
+        table.move(tab, 1, #tab, #dest + 1, dest)
+    end
 end
 
 return this
