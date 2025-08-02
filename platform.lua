@@ -12,8 +12,8 @@ local this = {}
 
 local function get_fallback_video_dir()
     return utils.join_path(
-            h.query_user_home_dir(),
-            (this.platform == this.Platform.macos and "Movies" or "Videos")
+        h.query_user_home_dir(),
+        (this.platform == this.Platform.macos and "Movies" or "Videos")
     )
 end
 
@@ -27,17 +27,17 @@ this.Platform = {
     windows = "windows",
 }
 this.platform = (
-        h.is_win() and this.Platform.windows
-                or h.is_mac() and this.Platform.macos
-                or this.Platform.gnu_linux
+    h.is_win() and this.Platform.windows
+    or h.is_mac() and this.Platform.macos
+    or this.Platform.gnu_linux
 )
 this.default_video_folder = h.query_xdg_user_dir("VIDEOS") or get_fallback_video_dir()
 this.default_audio_folder = h.query_xdg_user_dir("MUSIC") or get_fallback_music_dir()
 this.curl_exe = (this.platform == this.Platform.windows and 'curl.exe' or 'curl')
 this.open_utility = (
-        this.platform == this.Platform.windows and 'explorer.exe'
-                or this.platform == this.Platform.macos and 'open'
-                or this.platform == this.Platform.gnu_linux and 'xdg-open'
+    this.platform == this.Platform.windows and 'explorer.exe'
+    or this.platform == this.Platform.macos and 'open'
+    or this.platform == this.Platform.gnu_linux and 'xdg-open'
 )
 this.open = function(file_or_url)
     return mp.commandv('run', this.open_utility, file_or_url)
@@ -82,8 +82,8 @@ this.copy_or_open_url = function(url)
     local cb = this.clipboard.copy(url)
     if cb.status ~= 0 then
         local msg = string.format(
-                "Failed to copy URL to clipboard, trying to open in browser instead. Make sure %s is installed.",
-                this.clipboard.clip_exe
+            "Failed to copy URL to clipboard, trying to open in browser instead. Make sure %s is installed.",
+            this.clipboard.clip_exe
         )
         h.notify_error(msg, "warn", 4)
         this.open(url)
@@ -92,4 +92,29 @@ this.copy_or_open_url = function(url)
     end
     return cb
 end
+
+this.remove_folder = function(url)
+    if this.platform == this.Platform.windows then
+        h.subprocess({ 'powershell.exe', "-Command", 'rm', '-r', url })
+    else
+        h.subprocess({ "rm", "-r", url })
+    end
+end
+
+this.create_folder = function(url)
+    if this.platform == this.Platform.windows then
+        local ret = h.subprocess({ 'powershell.exe', '-Command', 'ls', url })
+        if (ret.status == 0) then return true end
+
+        ret = h.subprocess({ 'powershell.exe', '-Command', 'mkdir', url })
+        return ret.status == 0
+    else
+        local ret = h.subprocess({ 'ls', url })
+        if (ret.status == 0) then return true end
+
+        ret = h.subprocess({ 'mkdir', '-p', url })
+        return ret.status == 0
+    end
+end
+
 return this

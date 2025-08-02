@@ -52,7 +52,7 @@ local config = {
     audio_format = 'opus', -- aac, opus
     audio_bitrate = '32k', -- 32k, 64k, 128k, 256k. aac requires higher bitrates.
     font_size = 24,
-    osd_align = 7, -- https://aegisub.org/docs/3.2/ASS_Tags/#\an
+    osd_align = 7,         -- https://aegisub.org/docs/3.2/ASS_Tags/#\an
     osd_outline = 1.5,
     clean_filename = true,
     -- Whether to upload to catbox (permanent) or litterbox (temporary)
@@ -64,7 +64,9 @@ local config = {
     -- Available tags: %n = filename, %t = title, %s = start, %e = end, %d = duration,
     --                 %Y = year, %M = months, %D = day, %H = hours (24), %I = hours (12),
     --                 %P = am/pm %N = minutes, %S = seconds
-    filename_template='%n_%s-%e',
+    filename_template = '%n_%s-%e',
+    cache_path = '/temp/videoclip/',
+    use_cache = false
 }
 
 mpopt.read_options(config, NAME)
@@ -96,6 +98,10 @@ local function force_resolution(width, height, clip_fn, ...)
     clip_fn(...)
     config.video_width = cached_prefs.video_width
     config.video_height = cached_prefs.video_height
+end
+
+local function cleanup()
+    p.remove_folder(config.cache_path)
 end
 
 local function set_encoding_settings()
@@ -136,7 +142,8 @@ local function validate_config()
 end
 
 local function upload_to_catbox(outfile)
-    local endpoint = config.litterbox and 'https://litterbox.catbox.moe/resources/internals/api.php' or 'https://catbox.moe/user/api.php'
+    local endpoint = config.litterbox and 'https://litterbox.catbox.moe/resources/internals/api.php' or
+        'https://catbox.moe/user/api.php'
     h.notify("Uploading to " .. (config.litterbox and "litterbox.catbox.moe..." or "catbox.moe..."), "info", 9999)
 
     -- This uses cURL to send a request to the cat-/litterbox API.
@@ -156,7 +163,8 @@ local function upload_to_catbox(outfile)
         h.notify_error("Error: Failed to upload. Make sure cURL is installed and in your PATH.", "error", 3)
         return
     elseif r.status ~= 0 then
-        h.notify_error("Error: Failed to upload to " .. (config.litterbox and "litterbox.catbox.moe" or "catbox.moe"), "error", 2)
+        h.notify_error("Error: Failed to upload to " .. (config.litterbox and "litterbox.catbox.moe" or "catbox.moe"),
+            "error", 2)
         return
     end
 
@@ -175,7 +183,7 @@ function Menu:new(parent)
     local o = {
         parent = parent,
         overlay = parent and parent.overlay or mp.create_osd_overlay('ass-events'),
-        keybindings = { },
+        keybindings = {},
     }
     return setmetatable(o, self)
 end
@@ -219,19 +227,20 @@ main_menu = Menu:new()
 main_menu.timings = Timings:new()
 
 main_menu.keybindings = {
-    { key = 's', fn = function() main_menu:set_time('start') end },
-    { key = 'e', fn = function() main_menu:set_time('end') end },
-    { key = 'S', fn = function() main_menu:set_time_sub('start') end },
-    { key = 'E', fn = function() main_menu:set_time_sub('end') end },
-    { key = 'r', fn = function() main_menu:reset_timings() end },
-    { key = 'c', fn = function() main_menu:create_clip('video') end },
-    { key = 'C', fn = function() force_resolution(1920, -2, encoder.create_clip, 'video') end },
-    { key = 'a', fn = function() main_menu:create_clip('audio') end },
-    { key = 'x', fn = function() main_menu:create_clip('video', upload_to_catbox) end },
-    { key = 'X', fn = function() force_resolution(1920, -2, main_menu.create_clip, 'video', upload_to_catbox) end },
-    { key = 'p', fn = function() pref_menu:open() end },
-    { key = 'o', fn = function() p.open('https://streamable.com/') end },
+    { key = 's',   fn = function() main_menu:set_time('start') end },
+    { key = 'e',   fn = function() main_menu:set_time('end') end },
+    { key = 'S',   fn = function() main_menu:set_time_sub('start') end },
+    { key = 'E',   fn = function() main_menu:set_time_sub('end') end },
+    { key = 'r',   fn = function() main_menu:reset_timings() end },
+    { key = 'c',   fn = function() main_menu:create_clip('video') end },
+    { key = 'C',   fn = function() force_resolution(1920, -2, encoder.create_clip, 'video') end },
+    { key = 'a',   fn = function() main_menu:create_clip('audio') end },
+    { key = 'x',   fn = function() main_menu:create_clip('video', upload_to_catbox) end },
+    { key = 'X',   fn = function() force_resolution(1920, -2, main_menu.create_clip, 'video', upload_to_catbox) end },
+    { key = 'p',   fn = function() pref_menu:open() end },
+    { key = 'o',   fn = function() p.open('https://streamable.com/') end },
     { key = 'ESC', fn = function() main_menu:close() end },
+    { key = 'k',   fn = function() encoder.kill_job() end }
 }
 
 function main_menu:set_time(property)
@@ -273,10 +282,12 @@ function main_menu:update()
     osd:submenu('Create clip '):italics('(+shift to force fullHD preset)'):newline()
     osd:tab():item('c: '):append('video clip'):newline()
     osd:tab():item('a: '):append('audio clip'):newline()
-    osd:tab():item('x: '):append('video clip to ' .. (config.litterbox and 'litterbox.catbox.moe (' .. config.litterbox_expire .. ')' or 'catbox.moe')):newline()
+    osd:tab():item('x: '):append('video clip to ' ..
+        (config.litterbox and 'litterbox.catbox.moe (' .. config.litterbox_expire .. ')' or 'catbox.moe')):newline()
     osd:submenu('Options '):newline()
     osd:tab():item('p: '):append('Open preferences'):newline()
     osd:tab():item('o: '):append('Open streamable.com'):newline()
+    osd:tab():item('k: '):append('Kill running process'):newline()
     osd:tab():item('ESC: '):append('Close'):newline()
 
     self:overlay_draw(osd:get_text())
@@ -293,30 +304,31 @@ end
 pref_menu = Menu:new(main_menu)
 
 pref_menu.keybindings = {
-    { key = 'f', fn = function() pref_menu:cycle_video_formats() end },
-    { key = 'a', fn = function() pref_menu:cycle_audio_formats() end },
-    { key = 'm', fn = function() pref_menu:toggle_mute_audio() end },
-    { key = 'r', fn = function() pref_menu:cycle_resolutions() end },
-    { key = 'b', fn = function() pref_menu:cycle_audio_bitrates() end },
-    { key = 'e', fn = function() pref_menu:toggle_embed_subtitles() end },
-    { key = 'x', fn = function() pref_menu:toggle_catbox() end },
-    { key = 'z', fn = function() pref_menu:cycle_litterbox_expiration() end },
-    { key = 's', fn = function() pref_menu:save() end },
-    { key = 'c', fn = function() end },
+    { key = 'f',   fn = function() pref_menu:cycle_video_formats() end },
+    { key = 'a',   fn = function() pref_menu:cycle_audio_formats() end },
+    { key = 'm',   fn = function() pref_menu:toggle_mute_audio() end },
+    { key = 'r',   fn = function() pref_menu:cycle_resolutions() end },
+    { key = 'b',   fn = function() pref_menu:cycle_audio_bitrates() end },
+    { key = 'e',   fn = function() pref_menu:toggle_embed_subtitles() end },
+    { key = 'd',   fn = function() pref_menu:toggle_use_cache() end },
+    { key = 'x',   fn = function() pref_menu:toggle_catbox() end },
+    { key = 'z',   fn = function() pref_menu:cycle_litterbox_expiration() end },
+    { key = 's',   fn = function() pref_menu:save() end },
+    { key = 'c',   fn = function() end },
     { key = 'ESC', fn = function() pref_menu:close() end },
-    { key = 'q', fn = function() pref_menu:close() end },
+    { key = 'q',   fn = function() pref_menu:close() end },
 }
 
 pref_menu.resolutions = {
     { w = config.video_width, h = config.video_height, },
-    { w = -2, h = -2, },
-    { w = -2, h = 240, },
-    { w = -2, h = 360, },
-    { w = -2, h = 480, },
-    { w = -2, h = 720, },
-    { w = -2, h = 1080, },
-    { w = -2, h = 1440, },
-    { w = -2, h = 2160, },
+    { w = -2,                 h = -2, },
+    { w = -2,                 h = 240, },
+    { w = -2,                 h = 360, },
+    { w = -2,                 h = 480, },
+    { w = -2,                 h = 720, },
+    { w = -2,                 h = 1080, },
+    { w = -2,                 h = 1440, },
+    { w = -2,                 h = 2160, },
     selected = 1,
 }
 pref_menu.audio_bitrates = {
@@ -335,9 +347,9 @@ pref_menu.litterbox_expirations = { '1h', '12h', '24h', '72h', }
 
 function pref_menu:get_selected_resolution()
     return string.format(
-            '%s x %s',
-            config.video_width == -2 and 'auto' or config.video_width,
-            config.video_height == -2 and 'auto' or config.video_height
+        '%s x %s',
+        config.video_width == -2 and 'auto' or config.video_width,
+        config.video_height == -2 and 'auto' or config.video_height
     )
 end
 
@@ -350,7 +362,8 @@ function pref_menu:cycle_resolutions()
 end
 
 function pref_menu:cycle_audio_bitrates()
-    self.audio_bitrates.selected = self.audio_bitrates.selected + 1 > #self.audio_bitrates and 1 or self.audio_bitrates.selected + 1
+    self.audio_bitrates.selected = self.audio_bitrates.selected + 1 > #self.audio_bitrates and 1 or
+        self.audio_bitrates.selected + 1
     config.audio_bitrate = self.audio_bitrates[self.audio_bitrates.selected]
     self:update()
 end
@@ -398,6 +411,12 @@ function pref_menu:toggle_catbox()
     self:update()
 end
 
+function pref_menu:toggle_use_cache()
+    cleanup()
+    config['use_cache'] = not config['use_cache']
+    self:update()
+end
+
 function pref_menu:cycle_litterbox_expiration()
     if not config['litterbox'] then
         return
@@ -431,6 +450,10 @@ function pref_menu:update()
     else
         osd:tab():color("b0b0b0"):text('x: Litterbox expires after: '):append("N/A"):newline()
     end
+    osd:submenu('Use internal cache (on streams)'):newline()
+    osd:tab():item('d: Use cache: '):append(config.use_cache):newline()
+    osd:tab():append(
+        'There are no guardrails against clipping beyond cached time, so it is recommended to increase cache'):newline()
     osd:submenu('Save'):newline()
     osd:tab():item('s: Save preferences'):newline()
     self:overlay_draw(osd:get_text())
@@ -473,4 +496,5 @@ end
 validate_config()
 encoder.init(config, main_menu.timings)
 mp.add_key_binding('c', 'videoclip-menu-open', main_menu.open)
+mp.register_event('shutdown', cleanup)
 mp.msg.warn("Press 'c' to open the videoclip menu.")
