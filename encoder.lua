@@ -202,6 +202,23 @@ this.mkargs_video = function(out_clip_path)
         table.concat { "--video-aspect-override=", mp.get_property('video-aspect-override') }
     }
 
+    local crop = this.config.crop;
+    if (crop and #crop == 2) then
+        local video_width = mp.get_property_native('width');
+        local video_height = mp.get_property_native('height');
+        if (this.config.video_height ~= -2) then
+            video_width = video_width * this.config.video_height / video_height;
+            video_height = this.config.video_height;
+        end
+
+        local start_x = math.floor(math.min(crop[1].x, crop[2].x) * video_width)
+        local start_y = math.floor(math.min(crop[1].y, crop[2].y) * video_height)
+        local end_x = math.floor(math.max(crop[1].x, crop[2].x) * video_width)
+        local end_y = math.floor(math.max(crop[1].y, crop[2].y) * video_height)
+        local crop_format = string.format("%d:%d:%d:%d", end_x - start_x, end_y - start_y, start_x, start_y)
+        record_video[#record_video + 1] = table.concat { '--vf-add=crop=', crop_format }
+    end
+
     local referrer = mp.get_property('referrer')
     if referrer ~= '' then
         record_video[#record_video + 1] = table.concat { '--referrer=', quote(referrer) }
@@ -348,6 +365,7 @@ this.create_clip = function(clip_type, on_complete)
         end
         job = nil
     end)
+    this.config.crop = nil
     this.timings:reset()
 end
 

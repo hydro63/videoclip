@@ -51,7 +51,7 @@ local config = {
     video_fps = 'auto',
     audio_format = 'opus', -- aac, opus
     audio_bitrate = '32k', -- 32k, 64k, 128k, 256k. aac requires higher bitrates.
-    font_size = 24,
+    font_size = 16,
     osd_align = 7,         -- https://aegisub.org/docs/3.2/ASS_Tags/#\an
     osd_outline = 1.5,
     clean_filename = true,
@@ -70,8 +70,10 @@ local config = {
 }
 
 mpopt.read_options(config, NAME)
+
 local main_menu
 local pref_menu
+local crop_menu
 
 local allowed_presets = {
     ultrafast = true,
@@ -301,6 +303,7 @@ end
 ------------------------------------------------------------
 -- Preferences
 
+
 pref_menu = Menu:new(main_menu)
 
 pref_menu.keybindings = {
@@ -310,11 +313,11 @@ pref_menu.keybindings = {
     { key = 'r',   fn = function() pref_menu:cycle_resolutions() end },
     { key = 'b',   fn = function() pref_menu:cycle_audio_bitrates() end },
     { key = 'e',   fn = function() pref_menu:toggle_embed_subtitles() end },
+    { key = 'c',   fn = function() crop_open() end },
     { key = 'd',   fn = function() pref_menu:toggle_use_cache() end },
     { key = 'x',   fn = function() pref_menu:toggle_catbox() end },
     { key = 'z',   fn = function() pref_menu:cycle_litterbox_expiration() end },
     { key = 's',   fn = function() pref_menu:save() end },
-    { key = 'c',   fn = function() end },
     { key = 'ESC', fn = function() pref_menu:close() end },
     { key = 'q',   fn = function() pref_menu:close() end },
 }
@@ -436,6 +439,11 @@ end
 
 function pref_menu:update()
     local osd = OSD:new():config(config)
+    local crop = get_crop();
+    local crop_value = "NONE";
+    if (crop.x0) then crop_value = 'INVALID'; end;
+    if (crop.x1) then crop_value = 'yes'; end;
+
     osd:submenu('Preferences'):newline()
     osd:tab():item('r: Video resolution: '):append(self:get_selected_resolution()):newline()
     osd:tab():item('f: Video format: '):append(config.video_format):newline()
@@ -443,6 +451,7 @@ function pref_menu:update()
     osd:tab():item('b: Audio bitrate: '):append(config.audio_bitrate):newline()
     osd:tab():item('m: Mute audio: '):append(mp.get_property("mute")):newline()
     osd:tab():item('e: Embed subtitles: '):append(mp.get_property("sub-visibility")):newline()
+    osd:tab():item('c: Crop: '):append(crop_value):newline()
     osd:submenu('Catbox'):newline()
     osd:tab():item('x: Using: '):append(config.litterbox and 'Litterbox (temporary)' or 'Catbox (permanent)'):newline()
     if config.litterbox then
@@ -490,8 +499,149 @@ function pref_menu:save()
     end
 end
 
-------------------------------------------------------------
--- Finally, set an 'entry point' in mpv
+crop_menu = Menu:new(pref_menu)
+
+crop_menu.keybindings = {
+    { key = 'MBTN_LEFT', fn = function() crop_menu:crop_click() end },
+    { key = 'r',         fn = function() crop_menu:reset() end },
+    { key = 'ESC',       fn = function() crop_close() end },
+    { key = 'q',         fn = function() crop_close() end },
+}
+
+function crop_open()
+    mp.commandv("set", 'osc', 'no')
+    print("REMOVED")
+    crop_menu:open()
+end
+
+function crop_close()
+    mp.commandv('set', 'osc', 'yes')
+    mp.command_native({ "osd-overlay", 63, 'none', 'dummy' })
+    crop_menu:close();
+end
+
+function crop_menu:reset()
+    config['crop'] = nil
+    crop_menu:update();
+end
+
+function get_crop()
+    local crop = config['crop'];
+    local osd = mp.get_property_native('osd-dimensions')
+    if (crop == nil) then
+        return {
+            width = osd.w,
+            height = osd.h,
+            raw_x0 = "NONE",
+            raw_y0 = "NONE",
+            raw_x1 = "NONE",
+            raw_y1 = "NONE"
+        }
+    end
+
+
+    local video_width = osd.w - osd.ml - osd.mr;
+    local video_height = osd.h - osd.mt - osd.mb;
+    for i, v in ipairs(crop) do
+        print(i, 'x', v.x, 'y', v.y)
+    end
+
+    if (#crop == 1) then
+        return {
+            x0 = (osd.ml + crop[1].x * video_width) / osd.w,
+            y0 = (osd.mt + crop[1].y * video_height) / osd.h,
+            raw_x0 = string.format("%.2f%%", crop[1].x * 100),
+            raw_y0 = string.format("%.2f%%", crop[1].y * 100),
+            raw_x1 = "NONE",
+            raw_y1 = 'NONE'
+        }
+    end
+
+    return {
+        x0 = (osd.ml + math.min(crop[1].x, crop[2].x) * video_width) / osd.w,
+        y0 = (osd.mt + math.min(crop[1].y, crop[2].y) * video_height) / osd.h,
+        x1 = (osd.ml + math.max(crop[1].x, crop[2].x) * video_width) / osd.w,
+        y1 = (osd.mt + math.max(crop[1].y, crop[2].y) * video_height) / osd.h,
+        raw_x0 = string.format("%.2f%%", math.min(crop[1].x, crop[2].x) * 100),
+        raw_y0 = string.format("%.2f%%", math.min(crop[1].y, crop[2].y) * 100),
+        raw_x1 = string.format("%.2f%%", math.max(crop[1].x, crop[2].x) * 100),
+        raw_y1 = string.format("%.2f%%", math.max(crop[1].y, crop[2].y) * 100),
+    }
+end
+
+function crop_menu:update()
+    local crop = get_crop()
+    local osd = OSD:new():outline(0)
+
+    local w, h = mp.get_osd_size()
+
+    osd:new_layer():config(config);
+
+    osd:submenu('Crop'):newline()
+    osd:tab():item('CLICK: Set crop point'):newline();
+    osd:tab():item('r: Reset crop'):newline();
+    osd:submenu("POS"):newline();
+    osd:tab():item("START_X:"):append(crop.raw_x0):newline();
+    osd:tab():item("START_Y:"):append(crop.raw_y0):newline();
+    osd:tab():item("END_X:"):append(crop.raw_x1):newline();
+    osd:tab():item("END_Y:"):append(crop.raw_y1):newline();
+    self:overlay_draw(osd:get_text())
+
+    local crop_osd = OSD:new()
+    crop_osd:draw_start()
+    crop_osd:append('{\\bord0\\shad0\\1c&HFF0000&\\alpha&H80}')
+    --crop_osd:rect(0, 0, 960, 540)
+    if (crop.x0) then crop_osd:rect(0, 0, math.floor(crop.x0 * w), h) end
+    if (crop.y0) then crop_osd:rect(0, 0, w, math.floor(crop.y0 * h)) end
+    if (crop.x1) then crop_osd:rect(math.floor(crop.x1 * w), 0, w, h) end
+    if (crop.y1) then crop_osd:rect(0, math.floor(crop.y1 * h), w, h) end
+    crop_osd:draw_stop()
+
+    local margin_x = mp.get_property_native('osd-margin-x');
+    local margin_y = mp.get_property_native('osd-margin-y');
+
+    mp.commandv('set', 'osd-margin-x', 0);
+    mp.commandv('set', 'osd-margin-y', 0);
+    mp.command_native({
+        "osd-overlay",
+        63,                  -- overlay id
+        "ass-events",        -- format
+        crop_osd:get_text(), -- data
+        w, h                 -- res_x, res_y
+    })
+    mp.commandv('set', 'osd-margin-x', margin_x);
+    mp.commandv('set', 'osd-margin-y', margin_y);
+end
+
+local function clamp(value, bottom, top)
+    if (value < bottom) then return bottom end;
+    if (value > top) then return top end;
+    return value;
+end
+
+function crop_menu:crop_click()
+    local mouse_pos = mp.get_property_native('mouse-pos');
+    if (mouse_pos == nil) then return end
+
+    local osd = mp.get_property_native('osd-dimensions');
+    if (osd == nil) then return end;
+
+    if (osd.ml == nil or osd.mr == nil or osd.mb == nil or osd.mt == nil) then return end;
+
+    local video_width = osd.w - osd.ml - osd.mr;
+    local video_height = osd.h - osd.mt - osd.mb;
+    local x_percent = clamp(mouse_pos.x - osd.ml, 0, video_width) / video_width;
+    local y_percent = clamp(mouse_pos.y - osd.mt, 0, video_height) / video_height;
+
+    local current = config['crop'];
+    if (current == nil) then current = {} end;
+
+    current[#current + 1] = { x = x_percent, y = y_percent };
+    if (#current > 2) then table.remove(current, 1); end
+
+    config['crop'] = current
+    crop_menu:update()
+end
 
 validate_config()
 encoder.init(config, main_menu.timings)

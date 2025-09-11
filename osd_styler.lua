@@ -67,10 +67,10 @@ end
 
 function OSD:color(code)
     return self:append('{\\1c&H')
-               :append(code:sub(5, 6))
-               :append(code:sub(3, 4))
-               :append(code:sub(1, 2))
-               :append('&}')
+        :append(code:sub(5, 6))
+        :append(code:sub(3, 4))
+        :append(code:sub(1, 2))
+        :append('&}')
 end
 
 function OSD:text(text)
@@ -79,6 +79,42 @@ end
 
 function OSD:new_layer()
     return self:append('\n')
+end
+
+function OSD:draw_start()
+    return self:append("{\\p1}")
+end
+
+function OSD:draw_stop()
+    return self:append("{\\p0}")
+end
+
+function OSD:move_to(x, y)
+    local command = {
+        'm',
+        tostring(x),
+        tostring(y)
+    }
+
+    return self:append(" " .. table.concat(command, ' '))
+end
+
+function OSD:line_to(x, y)
+    local command = {
+        'l',
+        tostring(x),
+        tostring(y)
+    }
+
+    return self:append(" " .. table.concat(command, ' '))
+end
+
+function OSD:rect(x0, y0, x1, y1)
+    print("RECT", x0, y0, x1, y1)
+    self:move_to(x0, y0)
+    self:line_to(x1, y0)
+    self:line_to(x1, y1)
+    self:line_to(x0, y1)
 end
 
 function OSD:bold(s)
